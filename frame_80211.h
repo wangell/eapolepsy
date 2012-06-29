@@ -5,11 +5,11 @@ struct frame_80211
 {
 	unsigned short frameControl;
 	unsigned short duration;
-	unsigned short add1[3];
-	unsigned short add2[3];
-	unsigned short add3[3];
+	unsigned char add1[6];
+	unsigned char add2[6];
+	unsigned char add3[6];
 	unsigned short sequenceControl;
-	unsigned short add4[3];
+	unsigned char add4[6];
 };
 
 #endif

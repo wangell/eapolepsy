@@ -24,7 +24,7 @@ int main(int argc, char** argv)
 	//Account for pcap global size
 	int current_pos = sizeof(pcap_global);
 
-	for (int k = 0; k < 3; ++k)
+	for (int k = 0; k < 40000; ++k)
 	{
 		//Read pcap packet header
 		char pk_hdr_buffer[sizeof(pcap_pk_hdr)];
@@ -38,18 +38,34 @@ int main(int argc, char** argv)
 		inCap.read(pk_buffer, cur_pk->incl_len);
 		frame_80211* f = (frame_80211*) (pk_buffer);
 		
-		//cout<<"Frame control: "<<framey->wi_frameControl<<endl;
-		pcap_pk p;
-		p.hdr = *cur_pk;
-		p.wf = *f;
-		p.body = new char[cur_pk->incl_len];
-		memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
-		eapol_packs.push_back(p);
-
-		//Check if packet is of type/subtype 0x28
-		if ((f->frameControl&0x00fc) == 0x0088)
+		//Checks if frametype is 0x28, checks if LLC is of type 0x888e and EAPOL protocol is 2 aka lazy check for EAPOL packet
+		if (((f->frameControl&0x00fc) == 0x0088) && ((unsigned short)*(pk_buffer+32)==65416) && (*(pk_buffer+34)==0x2))
 		{
-			cout<<"Found EAPOL packet: "<<k+1<<endl;
+			pcap_pk p;
+			p.hdr = *cur_pk;
+			p.wf = *f;
+			p.body = new char[cur_pk->incl_len];
+			memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
+			eapol_packs.push_back(p);
+
+			//Check if packet is of type/subtype 0x28
+			cout<<dec<<"Found EAPOL packet: "<<k+1<<endl;
+			cout<<"Destination: ";
+			for (int z = 0; z < 6; ++z)
+			{
+				cout<<hex<<(int)f->add1[z];
+			}
+			cout<<" BSSID: ";
+			for (int z = 0; z < 6; ++z)
+			{
+				cout<<hex<<(int)f->add2[z];
+			}
+			cout<<" Source: ";
+			for (int z = 0; z < 6; ++z)
+			{
+				cout<<hex<<(int)f->add3[z];
+			}
+			cout<<endl;
 		}
 
 		//Add pcap packet header size/packet size to position
