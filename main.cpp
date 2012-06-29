@@ -37,14 +37,13 @@ int main(int argc, char** argv)
 		inCap.seekg(current_pos+sizeof(pcap_pk_hdr));
 		inCap.read(pk_buffer, cur_pk->incl_len);
 		frame_80211* f = (frame_80211*) (pk_buffer);
-		char* data = (pk_buffer+sizeof(frame_80211));
-
+		
 		//cout<<"Frame control: "<<framey->wi_frameControl<<endl;
 		pcap_pk p;
 		p.hdr = *cur_pk;
 		p.wf = *f;
-		p.data = new char[cur_pk->incl_len-sizeof(frame_80211)];
-		memcpy(p.data, data, cur_pk->incl_len-sizeof(frame_80211));
+		p.body = new char[cur_pk->incl_len];
+		memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
 		eapol_packs.push_back(p);
 
 		//Check if packet is of type/subtype 0x28
@@ -82,6 +81,7 @@ int main(int argc, char** argv)
 		unsigned int pack_size = sizeof(pcap_pk_hdr)+(r->hdr.incl_len);
 		char newbuff[pack_size];
 		memcpy(newbuff, r, pack_size);	
+		memcpy(newbuff+sizeof(pcap_pk_hdr)+sizeof(frame_80211),r->body, r->hdr.incl_len-sizeof(frame_80211));
 		outCap.write(newbuff,pack_size);
 		position += pack_size;
 	}

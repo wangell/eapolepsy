@@ -8,7 +8,7 @@ struct pcap_pk
 {
 	pcap_pk_hdr hdr;
 	frame_80211 wf;
-	char* data;
+	char* body;
 };
 
 #endif
