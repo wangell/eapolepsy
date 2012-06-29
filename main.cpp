@@ -26,6 +26,64 @@ int main(int argc, char** argv)
 	//Account for pcap global size
 	int current_pos = sizeof(pcap_global);
 
+	//Searches for beacon frame, if there is one it adds it to the list of APs
+	for (int k = 0; k < 40000; ++k)
+	{
+		//Read pcap packet header
+		char pk_hdr_buffer[sizeof(pcap_pk_hdr)];
+		inCap.seekg(current_pos);
+		inCap.read(pk_hdr_buffer, sizeof(pcap_pk_hdr));
+		pcap_pk_hdr* cur_pk = (pcap_pk_hdr*) (pk_hdr_buffer);
+
+		//Read frame+data
+		char* pk_buffer = new char[cur_pk->incl_len];
+		inCap.seekg(current_pos+sizeof(pcap_pk_hdr));
+		inCap.read(pk_buffer, cur_pk->incl_len);
+		frame_80211* f = (frame_80211*) (pk_buffer);
+
+		if ((f->frameControl) == 128)
+		{
+			bool found_ap = false;
+
+			for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+			{
+				if (memcmp(f->add3,(*j).bssid, 6) == 0)
+				{
+					found_ap=true;
+					break;
+				}
+			}
+
+			if (!found_ap)
+			{
+				ap c_ap;
+				c_ap.has_beacon=true;
+				pcap_pk p;
+				p.hdr = *cur_pk;
+				p.wf = *f;
+				p.body = new char[cur_pk->incl_len];
+				memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
+				c_ap.beacon_frame=new pcap_pk;
+				memcpy(c_ap.beacon_frame, &p, sizeof(pcap_pk));
+				c_ap.has_beacon=true;
+				memcpy(c_ap.bssid, f->add3, 6);
+				aps.push_back(c_ap);
+			}
+		}
+		current_pos += sizeof(pcap_pk_hdr) + cur_pk->incl_len;
+	}
+
+	for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+	{
+		for (int nn = 0; nn < 6; ++nn)
+		{
+			cout<<hex<<(int)(*j).bssid[nn];
+		}
+		cout<<endl;
+	}
+
+	//Search for EAPOL packets, look through APs for matching BSSID, adds packet to eapol_packets
+	current_pos = sizeof(pcap_global);
 	for (int k = 0; k < 40000; ++k)
 	{
 		//Read pcap packet header
@@ -72,67 +130,25 @@ int main(int argc, char** argv)
 			
 			for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
 			{
-				if (memcmp(f->add2,(*j).bssid, 6))
+				if ((memcmp(f->add1,(*j).bssid, 6) == 0) || (memcmp(f->add2,(*j).bssid, 6) == 0))
 				{
 					(*j).eapol_packets.push_back(p);
-					found_ap = true;
 				}
-			}
-
-			if (!found_ap)
-			{
-				ap c_ap;
-				c_ap.has_beacon=false;
-				c_ap.eapol_packets.push_back(p);
-				memcpy(c_ap.bssid, f->add2, 6);
-				aps.push_back(c_ap);
 			}
 		}
 
 		//Add pcap packet header size/packet size to position
 		current_pos += sizeof(pcap_pk_hdr) + cur_pk->incl_len;
 	}
-
-	current_pos = 0;
-	
-	for (int k = 0; k < 40000; ++k)
-	{
-		//Read pcap packet header
-		char pk_hdr_buffer[sizeof(pcap_pk_hdr)];
-		inCap.seekg(current_pos);
-		inCap.read(pk_hdr_buffer, sizeof(pcap_pk_hdr));
-		pcap_pk_hdr* cur_pk = (pcap_pk_hdr*) (pk_hdr_buffer);
-
-		//Read frame+data
-		char* pk_buffer = new char[cur_pk->incl_len];
-		inCap.seekg(current_pos+sizeof(pcap_pk_hdr));
-		inCap.read(pk_buffer, cur_pk->incl_len);
-		frame_80211* f = (frame_80211*) (pk_buffer);
-
-		if ((f->frameControl&0x00fc) == 1)
-		{
-			for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
-			{
-				if ((memcmp(f->add2,(*j).bssid,6) && (*j).has_beacon==false))
-				{
-					pcap_pk p;
-					p.hdr = *cur_pk;
-					p.wf = *f;
-					p.body = new char[cur_pk->incl_len];
-					memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
-					(*j).beacon_frame=new pcap_pk;
-					memcpy((*j).beacon_frame, &p, sizeof(pcap_pk));
-					(*j).has_beacon=true;
-				}
-			}
-		}
-		
-	}
 	inCap.close();
-	
+
 	int ff = 1;
 	for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
 	{
+		if ((*j).eapol_packets.empty())
+		{
+			continue;
+		}
 		ofstream outCap;
 		stringstream outName;
 		outName<<"AP"<<ff<<".cap";

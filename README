@@ -3,4 +3,3 @@ Converts/splits WPA/WPA2 4-way handshakes into multiple cap/hccap (hashcat file 
 To-do:
 -Add hccap format
 -Handle arguments
--Search for beacon/essid
