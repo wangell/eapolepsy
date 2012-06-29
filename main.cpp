@@ -11,6 +11,8 @@
 
 using namespace std;
 
+const char* essid_from_beacon(const pcap_pk &pk);
+
 int main(int argc, char** argv)
 {
 	ifstream inCap;	
@@ -77,7 +79,7 @@ int main(int argc, char** argv)
 	{
 		for (int nn = 0; nn < 6; ++nn)
 		{
-			cout<<hex<<(int)(*j).bssid[nn];
+			cout<<essid_from_beacon(*((*j).beacon_frame))<<endl;
 		}
 		cout<<endl;
 	}
@@ -141,8 +143,46 @@ int main(int argc, char** argv)
 		current_pos += sizeof(pcap_pk_hdr) + cur_pk->incl_len;
 	}
 	inCap.close();
-
+	
 	int ff = 1;
+	for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+	{
+		if ((*j).eapol_packets.empty())
+		{
+			continue;
+		}
+		ofstream outCap;
+		stringstream outName;
+		outName<<"AP"<<ff<<".hccap";
+		outCap.open(outName.str().c_str(), ios::out | ios::binary);
+		char pcapMagic[sizeof(pcap_global)];
+		pcap_global* glob = new pcap_global;
+		glob->magic_number = 0xa1b2c3d4;
+		glob->version_major = 2;
+		glob->version_minor = 4;
+		glob->thiszone = 0;
+		glob->sigfigs = 0;
+		glob->snaplen = 65535;
+		glob->network = 105;
+		memcpy(pcapMagic, glob, 24);
+		outCap.write(pcapMagic, 24);
+		int position = sizeof(pcap_global);
+		vector<pcap_pk>::iterator it;
+		for (it = (*j).eapol_packets.begin(); it < (*j).eapol_packets.end(); ++it)
+		{
+			outCap.seekp(position);
+			pcap_pk* r = &(*it);
+			unsigned int pack_size = sizeof(pcap_pk_hdr)+(r->hdr.incl_len);
+			char newbuff[pack_size];
+			memcpy(newbuff, r, pack_size);	
+			memcpy(newbuff+sizeof(pcap_pk_hdr)+sizeof(frame_80211),r->body, r->hdr.incl_len-sizeof(frame_80211));
+			outCap.write(newbuff,pack_size);
+			position += pack_size;
+		}
+		++ff;
+	}
+
+	ff = 1;
 	for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
 	{
 		if ((*j).eapol_packets.empty())
@@ -179,4 +219,16 @@ int main(int argc, char** argv)
 		}
 		++ff;
 	}
+}
+
+const char* essid_from_beacon(const pcap_pk &pk)
+{
+	unsigned char essid_length = *(pk.body+7);
+	char* essid;
+	if (0 < essid_length)
+	{
+		essid = new char[essid_length];
+		memcpy(essid, pk.body+8, essid_length);
+	}
+	return essid;
 }
