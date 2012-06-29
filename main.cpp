@@ -1,4 +1,5 @@
 #include <iostream>
+#include <sstream>
 #include <fstream>
 #include <cstring>
 #include <vector>
@@ -6,13 +7,14 @@
 #include "frame_80211.h"
 #include "pcap_pk_hdr.h"
 #include "pcap_pk.h"
+#include "ap.h"
 
 using namespace std;
 
 int main(int argc, char** argv)
 {
 	ifstream inCap;	
-	vector<pcap_pk> eapol_packs;
+	vector<ap> aps;
 	inCap.open("datatest.cap", ios::in | ios:: binary);
 
 	//Read pcap global
@@ -46,7 +48,6 @@ int main(int argc, char** argv)
 			p.wf = *f;
 			p.body = new char[cur_pk->incl_len];
 			memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
-			eapol_packs.push_back(p);
 
 			//Check if packet is of type/subtype 0x28
 			cout<<dec<<"Found EAPOL packet: "<<k+1<<endl;
@@ -66,14 +67,103 @@ int main(int argc, char** argv)
 				cout<<hex<<(int)f->add3[z];
 			}
 			cout<<endl;
+
+			bool found_ap = false;
+			
+			for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+			{
+				if (memcmp(f->add2,(*j).bssid, 6))
+				{
+					(*j).eapol_packets.push_back(p);
+					found_ap = true;
+				}
+			}
+
+			if (!found_ap)
+			{
+				ap c_ap;
+				c_ap.has_beacon=false;
+				c_ap.eapol_packets.push_back(p);
+				memcpy(c_ap.bssid, f->add2, 6);
+				aps.push_back(c_ap);
+			}
 		}
 
 		//Add pcap packet header size/packet size to position
 		current_pos += sizeof(pcap_pk_hdr) + cur_pk->incl_len;
 	}
+
+	current_pos = 0;
 	
+	for (int k = 0; k < 40000; ++k)
+	{
+		//Read pcap packet header
+		char pk_hdr_buffer[sizeof(pcap_pk_hdr)];
+		inCap.seekg(current_pos);
+		inCap.read(pk_hdr_buffer, sizeof(pcap_pk_hdr));
+		pcap_pk_hdr* cur_pk = (pcap_pk_hdr*) (pk_hdr_buffer);
+
+		//Read frame+data
+		char* pk_buffer = new char[cur_pk->incl_len];
+		inCap.seekg(current_pos+sizeof(pcap_pk_hdr));
+		inCap.read(pk_buffer, cur_pk->incl_len);
+		frame_80211* f = (frame_80211*) (pk_buffer);
+
+		if ((f->frameControl&0x00fc) == 1)
+		{
+			for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+			{
+				if ((memcmp(f->add2,(*j).bssid,6) && (*j).has_beacon==false))
+				{
+					pcap_pk p;
+					p.hdr = *cur_pk;
+					p.wf = *f;
+					p.body = new char[cur_pk->incl_len];
+					memcpy(p.body, pk_buffer+sizeof(frame_80211), cur_pk->incl_len - sizeof(frame_80211));
+					(*j).beacon_frame=new pcap_pk;
+					memcpy((*j).beacon_frame, &p, sizeof(pcap_pk));
+					(*j).has_beacon=true;
+				}
+			}
+		}
+		
+	}
 	inCap.close();
-	ofstream outCap;
+	
+	int ff = 1;
+	for (vector<ap>::iterator j = aps.begin(); j < aps.end(); ++j)
+	{
+		ofstream outCap;
+		stringstream outName;
+		outName<<"AP"<<ff<<".cap";
+		outCap.open(outName.str().c_str(), ios::out | ios::binary);
+		char pcapMagic[sizeof(pcap_global)];
+		pcap_global* glob = new pcap_global;
+		glob->magic_number = 0xa1b2c3d4;
+		glob->version_major = 2;
+		glob->version_minor = 4;
+		glob->thiszone = 0;
+		glob->sigfigs = 0;
+		glob->snaplen = 65535;
+		glob->network = 105;
+		memcpy(pcapMagic, glob, 24);
+		outCap.write(pcapMagic, 24);
+		int position = sizeof(pcap_global);
+		vector<pcap_pk>::iterator it;
+		for (it = (*j).eapol_packets.begin(); it < (*j).eapol_packets.end(); ++it)
+		{
+			outCap.seekp(position);
+			pcap_pk* r = &(*it);
+			unsigned int pack_size = sizeof(pcap_pk_hdr)+(r->hdr.incl_len);
+			char newbuff[pack_size];
+			memcpy(newbuff, r, pack_size);	
+			memcpy(newbuff+sizeof(pcap_pk_hdr)+sizeof(frame_80211),r->body, r->hdr.incl_len-sizeof(frame_80211));
+			outCap.write(newbuff,pack_size);
+			position += pack_size;
+		}
+		++ff;
+	}
+	/*ofstream outCap;
 	outCap.open("newdat.cap", ios::out | ios::binary);
 
 	//Write out pcap global
@@ -101,5 +191,5 @@ int main(int argc, char** argv)
 		outCap.write(newbuff,pack_size);
 		position += pack_size;
 	}
-	outCap.close();
+	outCap.close();*/
 }
